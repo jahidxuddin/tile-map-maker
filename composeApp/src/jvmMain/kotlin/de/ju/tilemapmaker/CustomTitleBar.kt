@@ -74,10 +74,6 @@ fun CustomTitleBar(
                         }
                     }
                 }
-
-                Text(
-                    text = "Edit", color = Color.LightGray, modifier = Modifier.padding(horizontal = 8.dp)
-                )
             }
         }
 
