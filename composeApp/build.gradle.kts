@@ -5,6 +5,8 @@ plugins {
     alias(libs.plugins.composeMultiplatform)
     alias(libs.plugins.composeCompiler)
     alias(libs.plugins.composeHotReload)
+
+    kotlin("plugin.serialization") version "2.0.20"
 }
 
 kotlin {
@@ -17,9 +19,9 @@ kotlin {
             implementation(compose.material3)
             implementation(compose.ui)
 
-            // --- HIER EINFÜGEN ---
             implementation(compose.materialIconsExtended)
-            // ---------------------
+
+            implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
 
             implementation(compose.components.resources)
             implementation(compose.components.uiToolingPreview)

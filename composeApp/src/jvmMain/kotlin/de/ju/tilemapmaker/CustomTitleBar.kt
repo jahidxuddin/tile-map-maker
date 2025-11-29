@@ -42,6 +42,7 @@ fun CustomTitleBar(
     windowScope: WindowScope,
     triggerOpenProject: () -> Unit,
     triggerNewProject: () -> Unit,
+    showDropdownMenu: Boolean,
 ) {
     var fileMenuExpanded by remember { mutableStateOf(false) }
 
@@ -49,7 +50,6 @@ fun CustomTitleBar(
         modifier = Modifier.fillMaxWidth().height(32.dp).background(Color(0xFF3C3F41)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-
         // Linke Seite (Drag Area + Menü)
         windowScope.WindowDraggableArea(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -57,42 +57,51 @@ fun CustomTitleBar(
                 Text("🛠️", modifier = Modifier.padding(end = 8.dp))
 
                 // File Menü
-                Box {
-                    Text(
-                        text = "File",
-                        color = Color.LightGray,
-                        modifier = Modifier.clickable { fileMenuExpanded = true }
-                            .padding(horizontal = 8.dp, vertical = 4.dp))
+                if (showDropdownMenu) {
+                    Box {
+                        Text(
+                            text = "File",
+                            color = Color.LightGray,
+                            modifier = Modifier.clickable { fileMenuExpanded = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp))
+                        DropdownMenu(
+                            expanded = fileMenuExpanded,
+                            onDismissRequest = { fileMenuExpanded = false },
+                            modifier = Modifier.background(Color(0xFF3C3F41))
+                        ) {
 
-                    DropdownMenu(
-                        expanded = fileMenuExpanded, onDismissRequest = { fileMenuExpanded = false },
-                        modifier = Modifier.background(Color(0xFF3C3F41))
-                    ) {
+                            // 1. Button: New Project
+                            DropdownMenuItem(onClick = {
+                                fileMenuExpanded = false
+                                triggerNewProject()
+                            }) {
+                                Text("New Project", color = Color.White)
+                            }
 
-                        // 1. Button: New Project
-                        DropdownMenuItem(onClick = {
-                            fileMenuExpanded = false
-                            triggerNewProject()
-                        }) {
-                            Text("New Project", color = Color.White)
-                        }
+                            // 2. Button: Open
+                            DropdownMenuItem(onClick = {
+                                fileMenuExpanded = false
+                                triggerOpenProject()
+                            }) {
+                                Text("Open...", color = Color.White)
+                            }
 
-                        // 2. Button: Open
-                        DropdownMenuItem(onClick = {
-                            fileMenuExpanded = false
-                            triggerOpenProject()
-                        }) {
-                            Text("Open...", color = Color.White)
-                        }
+                            DropdownMenuItem(onClick = {
+                                fileMenuExpanded = false
 
-                        Divider(color = Color.Gray)
+                            }) {
+                                Text("Close Project", color = Color.White)
+                            }
 
-                        // 3. Button: Exit
-                        DropdownMenuItem(onClick = {
-                            fileMenuExpanded = false
-                            onClose() // <--- Schließt die App
-                        }) {
-                            Text("Exit", color = Color.White)
+                            Divider(color = Color.Gray)
+
+                            // 3. Button: Exit
+                            DropdownMenuItem(onClick = {
+                                fileMenuExpanded = false
+                                onClose() // <--- Schließt die App
+                            }) {
+                                Text("Exit", color = Color.White)
+                            }
                         }
                     }
                 }
