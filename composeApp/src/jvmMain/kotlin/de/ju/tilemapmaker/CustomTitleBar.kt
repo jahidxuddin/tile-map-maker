@@ -37,7 +37,11 @@ import androidx.compose.ui.window.WindowState
 
 @Composable
 fun CustomTitleBar(
-    windowState: WindowState, onClose: () -> Unit, windowScope: WindowScope
+    windowState: WindowState,
+    onClose: () -> Unit,
+    windowScope: WindowScope,
+    triggerOpenProject: () -> Unit,
+    triggerNewProject: () -> Unit,
 ) {
     var fileMenuExpanded by remember { mutableStateOf(false) }
 
@@ -61,16 +65,34 @@ fun CustomTitleBar(
                             .padding(horizontal = 8.dp, vertical = 4.dp))
 
                     DropdownMenu(
-                        expanded = fileMenuExpanded, onDismissRequest = { fileMenuExpanded = false }) {
-                        DropdownMenuItem(onClick = { fileMenuExpanded = false }) {
-                            Text("New Project")
+                        expanded = fileMenuExpanded, onDismissRequest = { fileMenuExpanded = false },
+                        modifier = Modifier.background(Color(0xFF3C3F41))
+                    ) {
+
+                        // 1. Button: New Project
+                        DropdownMenuItem(onClick = {
+                            fileMenuExpanded = false
+                            triggerNewProject()
+                        }) {
+                            Text("New Project", color = Color.White)
                         }
-                        DropdownMenuItem(onClick = { fileMenuExpanded = false }) {
-                            Text("Open...")
+
+                        // 2. Button: Open
+                        DropdownMenuItem(onClick = {
+                            fileMenuExpanded = false
+                            triggerOpenProject()
+                        }) {
+                            Text("Open...", color = Color.White)
                         }
-                        Divider()
-                        DropdownMenuItem(onClick = onClose) {
-                            Text("Exit")
+
+                        Divider(color = Color.Gray)
+
+                        // 3. Button: Exit
+                        DropdownMenuItem(onClick = {
+                            fileMenuExpanded = false
+                            onClose() // <--- Schließt die App
+                        }) {
+                            Text("Exit", color = Color.White)
                         }
                     }
                 }
