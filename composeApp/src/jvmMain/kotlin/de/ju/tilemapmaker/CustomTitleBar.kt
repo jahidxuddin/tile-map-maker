@@ -42,6 +42,8 @@ fun CustomTitleBar(
     windowScope: WindowScope,
     triggerOpenProject: () -> Unit,
     triggerNewProject: () -> Unit,
+    // NEU: Callback zum Schließen des Projekts (Default leer für WelcomeWindow)
+    triggerCloseProject: () -> Unit = {},
     showDropdownMenu: Boolean,
 ) {
     var fileMenuExpanded by remember { mutableStateOf(false) }
@@ -86,19 +88,20 @@ fun CustomTitleBar(
                                 Text("Open...", color = Color.White)
                             }
 
+                            // 3. Button: Close Project (NEU)
                             DropdownMenuItem(onClick = {
                                 fileMenuExpanded = false
-
+                                triggerCloseProject() // <--- Ruft die Logik auf
                             }) {
                                 Text("Close Project", color = Color.White)
                             }
 
                             Divider(color = Color.Gray)
 
-                            // 3. Button: Exit
+                            // 4. Button: Exit
                             DropdownMenuItem(onClick = {
                                 fileMenuExpanded = false
-                                onClose() // <--- Schließt die App
+                                onClose()
                             }) {
                                 Text("Exit", color = Color.White)
                             }
@@ -108,54 +111,25 @@ fun CustomTitleBar(
             }
         }
 
+        // ... (Rechte Seite bleibt unverändert) ...
         // Rechte Seite (Fenster Kontrollen)
         Row(verticalAlignment = Alignment.CenterVertically) {
-
             // Minimieren
-            IconButton(
-                onClick = { windowState.isMinimized = true }, modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Minimize,
-                    contentDescription = "Minimize",
-                    tint = Color.LightGray,
-                    modifier = Modifier.size(16.dp)
-                )
+            IconButton(onClick = { windowState.isMinimized = true }, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Minimize, "Minimize", tint = Color.LightGray, modifier = Modifier.size(16.dp))
             }
-
-            // Maximieren / Restore
-            IconButton(
-                onClick = {
-                    windowState.placement = if (windowState.placement == WindowPlacement.Maximized) {
-                        WindowPlacement.Floating
-                    } else {
-                        WindowPlacement.Maximized
-                    }
-                }, modifier = Modifier.size(32.dp)
-            ) {
-                val icon = if (windowState.placement == WindowPlacement.Maximized) {
-                    Icons.Default.FilterNone
-                } else {
-                    Icons.Default.CropSquare
-                }
-                Icon(
-                    imageVector = icon,
-                    contentDescription = "Maximize",
-                    tint = Color.LightGray,
-                    modifier = Modifier.size(16.dp)
-                )
+            // Maximieren
+            IconButton(onClick = {
+                windowState.placement =
+                    if (windowState.placement == WindowPlacement.Maximized) WindowPlacement.Floating else WindowPlacement.Maximized
+            }, modifier = Modifier.size(32.dp)) {
+                val icon =
+                    if (windowState.placement == WindowPlacement.Maximized) Icons.Default.FilterNone else Icons.Default.CropSquare
+                Icon(icon, "Maximize", tint = Color.LightGray, modifier = Modifier.size(16.dp))
             }
-
             // Schließen
-            IconButton(
-                onClick = onClose, modifier = Modifier.size(32.dp)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = Color.LightGray,
-                    modifier = Modifier.size(16.dp)
-                )
+            IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
+                Icon(Icons.Default.Close, "Close", tint = Color.LightGray, modifier = Modifier.size(16.dp))
             }
         }
     }
