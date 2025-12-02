@@ -38,13 +38,101 @@ fun ApplicationScope.EditorWindow(
 ) {
     val windowState = rememberWindowState(placement = WindowPlacement.Maximized)
 
-    // Dialog States
     var showNewProjectDialog by remember { mutableStateOf(false) }
     var showLoadError by remember { mutableStateOf(false) }
 
-    // Editor States
+    // State für ausgewähltes Asset
     var selectedAsset by remember { mutableStateOf<File?>(null) }
-    val placedTiles = remember { mutableStateMapOf<Pair<Int, Int>, File>() }
+
+    // State für Tiles: Initialisieren aus der Config
+    val placedTiles = remember(project) {
+        val map = mutableStateMapOf<Pair<Int, Int>, File>()
+
+        // Versuchen, gespeicherte Tiles zu laden
+        if (!project.path.isNullOrBlank()) {
+            project.tiles.forEach { (key, filename) ->
+                try {
+                    val cords = key.split(",")
+                    if (cords.size == 2) {
+                        val x = cords[0].toInt()
+                        val y = cords[1].toInt()
+
+                        // Datei relativ zum Projektordner suchen
+                        val tileFile = File(project.path, filename)
+
+                        // Nur hinzufügen, wenn Datei auch existiert (optional, aber sauberer)
+                        if (tileFile.exists()) {
+                            map[x to y] = tileFile
+                        }
+                    }
+                } catch (e: Exception) {
+                    println("Fehler beim Laden von Tile $key: ${e.message}")
+                }
+            }
+        }
+        println("Editor geladen mit ${map.size} Tiles.")
+        map
+    }
+
+    // --- FUNKTION ZUM SPEICHERN ---
+    fun saveCurrentState() {
+        // Debug: Sehen, wie viele Tiles wir haben
+        println("Starte Speichern... Anzahl Tiles im Grid: ${placedTiles.size}")
+
+        val newTilesMap = mutableMapOf<String, String>()
+
+        // Wir iterieren über eine Kopie der Map, um sicherzugehen
+        placedTiles.toMap().forEach { (pos, file) ->
+            val key = "${pos.first},${pos.second}"
+            newTilesMap[key] = file.name
+        }
+
+        // Neue Config erstellen
+        val updatedConfig = project.copy(tiles = newTilesMap)
+
+        // Auf Festplatte schreiben
+        val success = saveProjectConfig(updatedConfig)
+
+        if (success) {
+            println("Speichern erfolgreich! Config hat jetzt ${updatedConfig.tiles.size} Tiles.")
+            // WICHTIG: UI aktualisieren, damit der State konsistent bleibt
+            onProjectChange(updatedConfig)
+        } else {
+            println("Fehler beim Speichern der Datei!")
+        }
+    }
+
+    // --- EXPORT FUNKTION ---
+    fun exportMapToTxt() {
+        if (project.path == null) return
+
+        val uniqueFiles = placedTiles.values.distinct().sortedBy { it.name }
+        val fileToId = uniqueFiles.mapIndexed { index, file -> file to index }.toMap()
+
+        val sbGrid = StringBuilder()
+        for (y in 0 until project.height) {
+            val row = mutableListOf<String>()
+            for (x in 0 until project.width) {
+                val file = placedTiles[x to y]
+                val id = if (file != null) fileToId[file] else -1
+                row.add(id.toString())
+            }
+            sbGrid.append(row.joinToString(",")).append("\n")
+        }
+
+        val sbLegend = StringBuilder()
+        fileToId.forEach { (file, id) ->
+            sbLegend.append("$id: ${file.name}\n")
+        }
+
+        try {
+            File(project.path, "map_grid.txt").writeText(sbGrid.toString())
+            File(project.path, "map_legend.txt").writeText(sbLegend.toString())
+            println("Export fertig: ${project.path}")
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
 
     Window(
         onCloseRequest = onClose,
@@ -55,13 +143,11 @@ fun ApplicationScope.EditorWindow(
         MaterialTheme(colors = darkColors()) {
             Column(modifier = Modifier.fillMaxSize()) {
 
-                // 1. Title Bar mit Logik
                 CustomTitleBar(
                     windowState = windowState,
                     onClose = onClose,
                     windowScope = this@Window,
                     triggerOpenProject = {
-                        // Logik für "Open" im Editor
                         val path = openFolderDialog(window)
                         if (path != null) {
                             val config = readProjectConfig(path)
@@ -74,13 +160,13 @@ fun ApplicationScope.EditorWindow(
                     },
                     triggerNewProject = { showNewProjectDialog = true },
                     triggerCloseProject = onCloseProject,
-                    showDropdownMenu = true
+                    triggerExportAsTxt = { exportMapToTxt() },
+                    triggerSaveProject = { saveCurrentState() }, // Hier rufen wir unsere neue Funktion auf
+                    showDropdownMenu = true,
                 )
 
-                // 2. Split View (Editor Area)
                 Row(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1F22))) {
 
-                    // Linker Bereich: Grid
                     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         MapGridArea(
                             gridWidth = project.width,
@@ -89,6 +175,8 @@ fun ApplicationScope.EditorWindow(
                             placedTiles = placedTiles,
                             onPlaceTile = { x, y, file ->
                                 placedTiles[x to y] = file
+                                // Debug: Prüfen ob das Setzen klappt
+                                // println("Tile gesetzt bei $x,$y: ${file.name}")
                             },
                             onRemoveTile = { x, y ->
                                 placedTiles.remove(x to y)
@@ -97,7 +185,6 @@ fun ApplicationScope.EditorWindow(
 
                     Divider(modifier = Modifier.fillMaxHeight().width(1.dp), color = Color(0xFF111111))
 
-                    // Rechter Bereich: Explorer
                     Box(modifier = Modifier.width(300.dp).fillMaxHeight().background(Color(0xFF2B2D30))) {
                         AssetBrowser(
                             projectPath = project.path,
@@ -106,19 +193,13 @@ fun ApplicationScope.EditorWindow(
                     }
                 }
 
-                // --- 3. DIALOGE (WIEDER EINGEFÜGT) ---
-
-                // Dialog für Neues Projekt
+                // ... (Dialoge Code bleibt gleich) ...
                 if (showNewProjectDialog) {
                     NewProjectDialog(onDismiss = { showNewProjectDialog = false }, onCreate = { name, width, height ->
                         showNewProjectDialog = false
-
-                        // Speicherort wählen
                         val parentPath = openFolderDialog(window)
                         if (parentPath != null) {
                             val tempConfig = ProjectConfig(name, width, height, path = parentPath)
-
-                            // Erstellen und Wechseln
                             if (createProjectConfig(tempConfig)) {
                                 val fullPath = File(parentPath, name).absolutePath
                                 onProjectChange(tempConfig.copy(path = fullPath))
@@ -129,10 +210,8 @@ fun ApplicationScope.EditorWindow(
                     })
                 }
 
-                // Fehler Dialog
                 if (showLoadError) {
-                    ErrorDialog(
-                        message = "Konnte Projekt nicht laden oder erstellen.", onDismiss = { showLoadError = false })
+                    ErrorDialog(message = "Fehler beim Laden.", onDismiss = { showLoadError = false })
                 }
             }
         }
@@ -164,9 +243,8 @@ fun MapGridArea(
                 )
             )
         }
-        var isLocked by remember { mutableStateOf(false) }
+        var isLocked by remember { mutableStateOf(true) }
 
-        // Hilfsfunktion: Screen -> Grid
         fun getGridPos(screenPos: Offset): Pair<Int, Int>? {
             val mapX = (screenPos.x / scale) - offset.x
             val mapY = (screenPos.y / scale) - offset.y
@@ -175,78 +253,55 @@ fun MapGridArea(
             return if (gridX in 0 until gridWidth && gridY in 0 until gridHeight) gridX to gridY else null
         }
 
-        Box(
-            modifier = Modifier.fillMaxSize().clip(RectangleShape)
-            // 1. ZOOM (Scrollen)
-            .onPointerEvent(PointerEventType.Scroll) {
-                val change = it.changes.first()
-                scale = (scale * (if (change.scrollDelta.y > 0) 0.9f else 1.1f)).coerceIn(0.1f, 10f)
-            }
-            // 2. DRAG & MOVE LOGIK (Der Ersatz für detectDragGestures)
-            .onPointerEvent(PointerEventType.Move) { event ->
-                val change = event.changes.first()
-                val dragAmount = change.positionChange()
-
-                // Nur reagieren, wenn die Maus gedrückt ist UND sich bewegt
-                if (change.pressed && dragAmount != Offset.Zero) {
-                    val isLeftClick = event.buttons.isPrimaryPressed
-                    val isRightClick = event.buttons.isSecondaryPressed
-
-                    if (!isLocked) {
-                        // Pan Modus: Nur Linksklick verschiebt die Karte
-                        if (isLeftClick) {
-                            offset += dragAmount / scale
+        Box(modifier = Modifier.fillMaxSize().clip(RectangleShape).onPointerEvent(PointerEventType.Scroll) {
+            val change = it.changes.first()
+            scale = (scale * (if (change.scrollDelta.y > 0) 0.9f else 1.1f)).coerceIn(0.1f, 10f)
+        }.onPointerEvent(PointerEventType.Move) { event ->
+            val change = event.changes.first()
+            val dragAmount = change.positionChange()
+            if (change.pressed && dragAmount != Offset.Zero) {
+                val isLeftClick = event.buttons.isPrimaryPressed
+                val isRightClick = event.buttons.isSecondaryPressed
+                if (!isLocked) {
+                    if (isLeftClick) {
+                        offset += dragAmount / scale
+                        change.consume()
+                    }
+                } else {
+                    val gridPos = getGridPos(change.position)
+                    if (gridPos != null) {
+                        if (isRightClick) {
+                            onRemoveTile(gridPos.first, gridPos.second)
+                            change.consume()
+                        } else if (isLeftClick && selectedAsset != null) {
+                            onPlaceTile(gridPos.first, gridPos.second, selectedAsset)
                             change.consume()
                         }
-                    } else {
-                        // Lock Modus: Malen oder Radieren
-                        val gridPos = getGridPos(change.position)
-                        if (gridPos != null) {
-                            if (isRightClick) {
-                                // Rechts ziehen -> Radieren
-                                onRemoveTile(gridPos.first, gridPos.second)
-                                change.consume()
-                            } else if (isLeftClick && selectedAsset != null) {
-                                // Links ziehen -> Malen
-                                onPlaceTile(gridPos.first, gridPos.second, selectedAsset)
-                                change.consume()
-                            }
-                        }
                     }
                 }
             }
-            // 3. EINZEL-KLICK (Rechts -> Löschen)
-            .onPointerEvent(PointerEventType.Press) { event ->
-                if (event.buttons.isSecondaryPressed) {
-                    getGridPos(event.changes.first().position)?.let { onRemoveTile(it.first, it.second) }
+        }.onPointerEvent(PointerEventType.Press) { event ->
+            if (event.buttons.isSecondaryPressed) {
+                getGridPos(event.changes.first().position)?.let { onRemoveTile(it.first, it.second) }
+            }
+        }.pointerInput(Unit) {
+            detectTapGestures { tapOffset ->
+                if (selectedAsset != null) getGridPos(tapOffset)?.let {
+                    onPlaceTile(
+                        it.first, it.second, selectedAsset
+                    )
                 }
             }
-            // 4. EINZEL-TAP (Links -> Malen)
-            // Hier nutzen wir weiter pointerInput, da es sauberer Klicks erkennt als onPointerEvent(Press) für Links
-            .pointerInput(Unit) {
-                detectTapGestures { tapOffset ->
-                    // Nur reagieren, wenn wir auch ein Asset haben (oder gelockt sind)
-                    if (selectedAsset != null) {
-                        getGridPos(tapOffset)?.let { onPlaceTile(it.first, it.second, selectedAsset) }
-                    }
-                }
+        }) {
+            Canvas(modifier = Modifier.fillMaxSize().graphicsLayer {
+                scaleX = scale; scaleY = scale; translationX = offset.x * scale; translationY =
+                offset.y * scale; transformOrigin = TransformOrigin(0f, 0f)
             }) {
-            Canvas(
-                modifier = Modifier.fillMaxSize().graphicsLayer {
-                    scaleX = scale
-                    scaleY = scale
-                    translationX = offset.x * scale
-                    translationY = offset.y * scale
-                    transformOrigin = TransformOrigin(0f, 0f)
-                }) {
-                // Hintergrund
                 drawRect(
                     Color(0xFF252526),
                     topLeft = Offset.Zero,
                     size = androidx.compose.ui.geometry.Size(mapWidthPx, mapHeightPx)
                 )
-
-                // Tiles Zeichnen
                 placedTiles.forEach { (pos, file) ->
                     val (x, y) = pos
                     var bmp = bitmapCache[file]
@@ -264,23 +319,17 @@ fun MapGridArea(
                         )
                     }
                 }
-
-                // Gitter Linien
-                val step = tileSizePx
                 for (i in 0..gridWidth) drawLine(
                     Color(0xFF3E3E42),
-                    start = Offset(i * step, 0f),
-                    end = Offset(i * step, mapHeightPx),
+                    start = Offset(i * tileSizePx, 0f),
+                    end = Offset(i * tileSizePx, mapHeightPx),
                     strokeWidth = 1f / scale
                 )
                 for (i in 0..gridHeight) drawLine(
-                    Color(0xFF3E3E42),
-                    start = Offset(0f, i * step),
-                    end = Offset(mapWidthPx, i * step),
-                    strokeWidth = 1f / scale
+                    Color(0xFF3E3E42), start = Offset(0f, i * tileSizePx), end = Offset(
+                        mapWidthPx, i * tileSizePx
+                    ), strokeWidth = 1f / scale
                 )
-
-                // Blauer Rahmen
                 drawRect(
                     Color(0xFF589DF6),
                     style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f / scale),
@@ -289,8 +338,6 @@ fun MapGridArea(
                 )
             }
         }
-
-        // Info Overlay
         Box(
             modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
                 .background(Color.Black.copy(0.6f), RoundedCornerShape(4.dp))
@@ -322,8 +369,6 @@ fun MapGridArea(
 @Composable
 fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (File) -> Unit) {
     var imageFiles by remember { mutableStateOf<List<File>>(emptyList()) }
-
-    // ... (Dateien laden Logik bleibt gleich) ...
     LaunchedEffect(projectPath) {
         if (projectPath != null) {
             val dir = File(projectPath)
@@ -335,9 +380,7 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
             }
         }
     }
-
     Column(modifier = Modifier.fillMaxSize()) {
-        // ... (Header bleibt gleich) ...
         Box(
             modifier = Modifier.fillMaxWidth().height(40.dp).background(Color(0xFF3C3F41)).padding(8.dp),
             contentAlignment = Alignment.CenterStart
@@ -345,7 +388,6 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
             Text("Explorer", style = MaterialTheme.typography.subtitle2, color = Color.LightGray)
         }
         Divider(color = Color.Black)
-
         if (imageFiles.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -359,11 +401,7 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(imageFiles) { file ->
-                    AssetItem(
-                        file = file, isSelected = file == selectedAsset, // Prüfen ob ausgewählt
-                        onClick = { onAssetSelect(file) })
-                }
+                items(imageFiles) { file -> AssetItem(file, file == selectedAsset) { onAssetSelect(file) } }
             }
         }
     }
@@ -372,14 +410,13 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
 @Composable
 fun AssetItem(file: File, isSelected: Boolean, onClick: () -> Unit) {
     val bitmap = rememberBitmapFromFile(file)
-
-    // Visuelles Feedback für Auswahl: Blauer Rahmen oder Standard Hintergrund
     val border = if (isSelected) BorderStroke(2.dp, Color(0xFF589DF6)) else null
     val elevation = if (isSelected) 8.dp else 2.dp
-
     Card(
-        backgroundColor = Color(0xFF3C3F41), elevation = elevation, border = border, // Rahmen hinzufügen
-        modifier = Modifier.height(100.dp).clickable(onClick = onClick) // Callback aufrufen
+        backgroundColor = Color(0xFF3C3F41),
+        elevation = elevation,
+        border = border,
+        modifier = Modifier.height(100.dp).clickable(onClick = onClick)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Box(modifier = Modifier.weight(1f).padding(4.dp), contentAlignment = Alignment.Center) {
@@ -405,7 +442,6 @@ fun rememberBitmapFromFile(file: File): ImageBitmap? {
 
     LaunchedEffect(file) {
         try {
-            // Versuche Bild zu laden (IO Thread wäre sauberer, für hier reicht es so)
             val bufferedImage = ImageIO.read(file)
             if (bufferedImage != null) {
                 bitmap = bufferedImage.toComposeImageBitmap()

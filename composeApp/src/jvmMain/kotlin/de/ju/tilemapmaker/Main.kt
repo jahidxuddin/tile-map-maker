@@ -2,7 +2,6 @@ package de.ju.tilemapmaker
 
 import androidx.compose.runtime.*
 import androidx.compose.ui.awt.ComposeWindow
-import androidx.compose.ui.window.application
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
@@ -12,26 +11,26 @@ import javax.swing.UIManager
 
 @Serializable
 data class ProjectConfig(
-    val name: String, val width: Int, val height: Int, val path: String? = null
+    val name: String,
+    val width: Int,
+    val height: Int,
+    val path: String? = null,
+    val tiles: Map<String, String> = emptyMap()
 )
 
 fun readProjectConfig(folderPath: String): ProjectConfig? {
     val configFile = File(folderPath, "config.json")
-
     if (!configFile.exists()) {
         println("Keine config.json in $folderPath gefunden.")
         return null
     }
-
     return try {
         val jsonString = configFile.readText()
-
         val jsonParser = Json {
             ignoreUnknownKeys = true
             prettyPrint = true
             isLenient = true
         }
-
         jsonParser.decodeFromString<ProjectConfig>(jsonString)
     } catch (e: Exception) {
         println("Fehler beim Lesen der config.json: ${e.message}")
@@ -39,46 +38,43 @@ fun readProjectConfig(folderPath: String): ProjectConfig? {
     }
 }
 
-fun createProjectConfig(config: ProjectConfig): Boolean {
-    val parentPath = config.path
-    if (parentPath.isNullOrBlank()) {
-        println("Fehler: Kein Eltern-Pfad im Projekt-Objekt angegeben.")
-        return false
-    }
-
+fun saveProjectConfig(config: ProjectConfig): Boolean {
+    val path = config.path ?: return false
     return try {
-        val projectDir = File(parentPath, config.name)
-
-        if (!projectDir.exists()) {
-            val created = projectDir.mkdirs()
-            if (!created) {
-                println("Fehler: Konnte Ordner nicht erstellen: ${projectDir.absolutePath}")
-                return false
-            }
-        }
-
-        val finalConfig = config.copy(path = projectDir.absolutePath)
-
         val json = Json {
             prettyPrint = true
             ignoreUnknownKeys = true
             encodeDefaults = true
         }
-
-        val jsonString = json.encodeToString(finalConfig)
-
-        val configFile = File(projectDir, "config.json")
-        configFile.writeText(jsonString)
-
-        println("Erfolg: Projekt erstellt in ${projectDir.absolutePath}")
+        val jsonString = json.encodeToString(config)
+        File(path, "config.json").writeText(jsonString)
         true
     } catch (e: Exception) {
-        println("Fehler beim Erstellen der config.json: ${e.message}")
+        e.printStackTrace()
         false
     }
 }
 
-fun main() = application {
+fun createProjectConfig(config: ProjectConfig): Boolean {
+    val parentPath = config.path
+    if (parentPath.isNullOrBlank()) return false
+
+    return try {
+        val projectDir = File(parentPath, config.name)
+        if (!projectDir.exists()) {
+            if (!projectDir.mkdirs()) return false
+        }
+
+        val finalConfig = config.copy(path = projectDir.absolutePath)
+        saveProjectConfig(finalConfig)
+        true
+    } catch (e: Exception) {
+        e.printStackTrace()
+        false
+    }
+}
+
+fun main() = androidx.compose.ui.window.application {
     var activeProject by remember { mutableStateOf<ProjectConfig?>(null) }
     var showErrorDialog by remember { mutableStateOf(false) }
 
@@ -88,8 +84,8 @@ fun main() = application {
 
     if (activeProject == null) {
         WelcomeWindow(
-            showErrorDialog = showErrorDialog, onDismissError = { showErrorDialog = false },
-
+            showErrorDialog = showErrorDialog,
+            onDismissError = { showErrorDialog = false },
             onOpenProject = { path ->
                 val config = readProjectConfig(path)
                 if (config != null) {
@@ -100,13 +96,9 @@ fun main() = application {
             },
             onCreateProject = { name, width, height ->
                 val parentPath = openFolderDialog(null)
-
                 if (parentPath != null) {
                     val tempConfig = ProjectConfig(name, width, height, path = parentPath)
-
-                    val success = createProjectConfig(tempConfig)
-
-                    if (success) {
+                    if (createProjectConfig(tempConfig)) {
                         val fullPath = File(parentPath, name).absolutePath
                         activeProject = tempConfig.copy(path = fullPath)
                     } else {
@@ -122,7 +114,8 @@ fun main() = application {
                 project = activeProject!!,
                 onClose = ::exitApplication,
                 onCloseProject = { activeProject = null },
-                onProjectChange = { newConfig -> activeProject = newConfig })
+                onProjectChange = { newConfig -> activeProject = newConfig }
+            )
         }
     }
 }

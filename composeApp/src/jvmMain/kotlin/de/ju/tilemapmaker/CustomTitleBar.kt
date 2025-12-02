@@ -40,25 +40,25 @@ fun CustomTitleBar(
     windowState: WindowState,
     onClose: () -> Unit,
     windowScope: WindowScope,
-    triggerOpenProject: () -> Unit,
-    triggerNewProject: () -> Unit,
-    // NEU: Callback zum Schließen des Projekts (Default leer für WelcomeWindow)
+    triggerOpenProject: () -> Unit = {},
+    triggerNewProject: () -> Unit = {},
     triggerCloseProject: () -> Unit = {},
+    triggerExportAsTxt: () -> Unit = {},
+    triggerSaveProject: () -> Unit = {},
     showDropdownMenu: Boolean,
 ) {
     var fileMenuExpanded by remember { mutableStateOf(false) }
+    var exportMenuExpanded by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth().height(32.dp).background(Color(0xFF3C3F41)),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Linke Seite (Drag Area + Menü)
         windowScope.WindowDraggableArea(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Spacer(modifier = Modifier.width(8.dp))
                 Text("🛠️", modifier = Modifier.padding(end = 8.dp))
 
-                // File Menü
                 if (showDropdownMenu) {
                     Box {
                         Text(
@@ -71,34 +71,33 @@ fun CustomTitleBar(
                             onDismissRequest = { fileMenuExpanded = false },
                             modifier = Modifier.background(Color(0xFF3C3F41))
                         ) {
-
-                            // 1. Button: New Project
                             DropdownMenuItem(onClick = {
                                 fileMenuExpanded = false
                                 triggerNewProject()
                             }) {
                                 Text("New Project", color = Color.White)
                             }
-
-                            // 2. Button: Open
                             DropdownMenuItem(onClick = {
                                 fileMenuExpanded = false
                                 triggerOpenProject()
                             }) {
                                 Text("Open...", color = Color.White)
                             }
-
-                            // 3. Button: Close Project (NEU)
+                            // --- SAVE BUTTON ---
                             DropdownMenuItem(onClick = {
                                 fileMenuExpanded = false
-                                triggerCloseProject() // <--- Ruft die Logik auf
+                                triggerSaveProject()
+                            }) {
+                                Text("Save Project", color = Color.White)
+                            }
+                            // -------------------
+                            DropdownMenuItem(onClick = {
+                                fileMenuExpanded = false
+                                triggerCloseProject()
                             }) {
                                 Text("Close Project", color = Color.White)
                             }
-
                             Divider(color = Color.Gray)
-
-                            // 4. Button: Exit
                             DropdownMenuItem(onClick = {
                                 fileMenuExpanded = false
                                 onClose()
@@ -107,18 +106,34 @@ fun CustomTitleBar(
                             }
                         }
                     }
+
+                    Box {
+                        Text(
+                            text = "Export",
+                            color = Color.LightGray,
+                            modifier = Modifier.clickable { exportMenuExpanded = true }
+                                .padding(horizontal = 8.dp, vertical = 4.dp))
+                        DropdownMenu(
+                            expanded = exportMenuExpanded,
+                            onDismissRequest = { exportMenuExpanded = false },
+                            modifier = Modifier.background(Color(0xFF3C3F41))
+                        ) {
+                            DropdownMenuItem(onClick = {
+                                exportMenuExpanded = false
+                                triggerExportAsTxt()
+                            }) {
+                                Text("Export as .txt", color = Color.White)
+                            }
+                        }
+                    }
                 }
             }
         }
 
-        // ... (Rechte Seite bleibt unverändert) ...
-        // Rechte Seite (Fenster Kontrollen)
         Row(verticalAlignment = Alignment.CenterVertically) {
-            // Minimieren
             IconButton(onClick = { windowState.isMinimized = true }, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Minimize, "Minimize", tint = Color.LightGray, modifier = Modifier.size(16.dp))
             }
-            // Maximieren
             IconButton(onClick = {
                 windowState.placement =
                     if (windowState.placement == WindowPlacement.Maximized) WindowPlacement.Floating else WindowPlacement.Maximized
@@ -127,7 +142,6 @@ fun CustomTitleBar(
                     if (windowState.placement == WindowPlacement.Maximized) Icons.Default.FilterNone else Icons.Default.CropSquare
                 Icon(icon, "Maximize", tint = Color.LightGray, modifier = Modifier.size(16.dp))
             }
-            // Schließen
             IconButton(onClick = onClose, modifier = Modifier.size(32.dp)) {
                 Icon(Icons.Default.Close, "Close", tint = Color.LightGray, modifier = Modifier.size(16.dp))
             }

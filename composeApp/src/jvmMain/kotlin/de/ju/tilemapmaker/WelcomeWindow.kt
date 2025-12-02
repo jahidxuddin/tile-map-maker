@@ -53,8 +53,6 @@ fun ApplicationScope.WelcomeWindow(
                     windowState = windowState,
                     onClose = onExit,
                     windowScope = this@Window,
-                    triggerOpenProject = triggerOpenProject,
-                    triggerNewProject = triggerNewProject,
                     showDropdownMenu = false
                 )
 
