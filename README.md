@@ -14,5 +14,6 @@ in your IDE’s toolbar or run it directly from the terminal:
   ```
   
 ### Preview
-<img src="composeApp/src/jvmMain/composeResources/img/file.png" alt="File Tab" />
-<img src="composeApp/src/jvmMain/composeResources/img/export.png" alt="Export Tab" />
+
+<img src="/img/file.png" alt="File Tab" />
+<img src="/img/export.png" alt="Export Tab" />
