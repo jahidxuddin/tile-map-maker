@@ -41,10 +41,8 @@ fun ApplicationScope.EditorWindow(
     var showNewProjectDialog by remember { mutableStateOf(false) }
     var showLoadError by remember { mutableStateOf(false) }
 
-    // State für ausgewähltes Asset
     var selectedAsset by remember { mutableStateOf<File?>(null) }
 
-    // State für Tiles: Initialisieren aus der Config
     val placedTiles = remember(project) {
         val map = mutableStateMapOf<Pair<Int, Int>, File>()
 
