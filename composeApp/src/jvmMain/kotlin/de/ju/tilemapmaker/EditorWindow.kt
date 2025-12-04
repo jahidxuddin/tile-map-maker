@@ -26,6 +26,8 @@ import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.rememberWindowState
+import java.awt.RenderingHints
+import java.awt.image.BufferedImage
 import java.io.File
 import javax.imageio.ImageIO
 
@@ -367,6 +369,7 @@ fun MapGridArea(
 @Composable
 fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (File) -> Unit) {
     var imageFiles by remember { mutableStateOf<List<File>>(emptyList()) }
+
     LaunchedEffect(projectPath) {
         if (projectPath != null) {
             val dir = File(projectPath)
@@ -378,6 +381,7 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
             }
         }
     }
+
     Column(modifier = Modifier.fillMaxSize()) {
         Box(
             modifier = Modifier.fillMaxWidth().height(40.dp).background(Color(0xFF3C3F41)).padding(8.dp),
@@ -386,6 +390,7 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
             Text("Explorer", style = MaterialTheme.typography.subtitle2, color = Color.LightGray)
         }
         Divider(color = Color.Black)
+
         if (imageFiles.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Text(
@@ -394,12 +399,15 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(80.dp),
+                columns = GridCells.Fixed(2),
                 contentPadding = PaddingValues(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(imageFiles) { file -> AssetItem(file, file == selectedAsset) { onAssetSelect(file) } }
+                items(imageFiles) { file ->
+                    AssetItem(
+                        file = file, isSelected = file == selectedAsset, onClick = { onAssetSelect(file) })
+                }
             }
         }
     }
@@ -408,19 +416,29 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
 @Composable
 fun AssetItem(file: File, isSelected: Boolean, onClick: () -> Unit) {
     val bitmap = rememberBitmapFromFile(file)
+
     val border = if (isSelected) BorderStroke(2.dp, Color(0xFF589DF6)) else null
     val elevation = if (isSelected) 8.dp else 2.dp
+
     Card(
         backgroundColor = Color(0xFF3C3F41),
         elevation = elevation,
         border = border,
-        modifier = Modifier.height(100.dp).clickable(onClick = onClick)
+        // ÄNDERUNG 2: Höhe deutlich erhöht (140dp)
+        modifier = Modifier.height(140.dp).clickable(onClick = onClick)
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Box(modifier = Modifier.weight(1f).padding(4.dp), contentAlignment = Alignment.Center) {
-                if (bitmap != null) Image(bitmap, null, contentScale = ContentScale.Fit) else Text(
-                    "?", color = Color.Gray
-                )
+            Box(modifier = Modifier.weight(1f).padding(8.dp), contentAlignment = Alignment.Center) {
+                if (bitmap != null) {
+                    Image(
+                        bitmap = bitmap,
+                        contentDescription = null,
+                        contentScale = ContentScale.Fit,
+                        filterQuality = FilterQuality.None
+                    )
+                } else {
+                    Text("?", color = Color.Gray)
+                }
             }
             Text(
                 file.name,
@@ -437,16 +455,31 @@ fun AssetItem(file: File, isSelected: Boolean, onClick: () -> Unit) {
 @Composable
 fun rememberBitmapFromFile(file: File): ImageBitmap? {
     var bitmap by remember(file) { mutableStateOf<ImageBitmap?>(null) }
-
     LaunchedEffect(file) {
         try {
-            val bufferedImage = ImageIO.read(file)
-            if (bufferedImage != null) {
-                bitmap = bufferedImage.toComposeImageBitmap()
+            val originalImage = ImageIO.read(file)
+            if (originalImage != null) {
+                val w = originalImage.width
+                val h = originalImage.height
+                if (w < 64 || h < 64) {
+                    val scale = (128 / w).coerceAtLeast(128 / h).coerceAtLeast(1)
+                    if (scale > 1) {
+                        val newW = w * scale
+                        val newH = h * scale
+                        val scaledImage = BufferedImage(newW, newH, BufferedImage.TYPE_INT_ARGB)
+                        val g = scaledImage.createGraphics()
+                        g.setRenderingHint(RenderingHints.KEY_INTERPOLATION, RenderingHints.VALUE_INTERPOLATION_NEAREST_NEIGHBOR)
+                        g.drawImage(originalImage, 0, 0, newW, newH, null)
+                        g.dispose()
+                        bitmap = scaledImage.toComposeImageBitmap()
+                    } else {
+                        bitmap = originalImage.toComposeImageBitmap()
+                    }
+                } else {
+                    bitmap = originalImage.toComposeImageBitmap()
+                }
             }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
+        } catch (e: Exception) { e.printStackTrace() }
     }
     return bitmap
 }
