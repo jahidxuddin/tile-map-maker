@@ -3,14 +3,20 @@ package de.ju.tilemapmaker
 import androidx.compose.foundation.*
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
@@ -39,180 +45,186 @@ fun ApplicationScope.EditorWindow(
     project: ProjectConfig, onClose: () -> Unit, onCloseProject: () -> Unit, onProjectChange: (ProjectConfig) -> Unit
 ) {
     val windowState = rememberWindowState(placement = WindowPlacement.Maximized)
-
     var showNewProjectDialog by remember { mutableStateOf(false) }
     var showLoadError by remember { mutableStateOf(false) }
-
     var selectedAsset by remember { mutableStateOf<File?>(null) }
 
-    val placedTiles = remember(project) {
-        val map = mutableStateMapOf<Pair<Int, Int>, File>()
+    // --- INITIALISIERUNG DER LAYER ---
+    val layers = remember(project) {
+        val list = mutableStateListOf<EditorLayer>()
 
-        // Versuchen, gespeicherte Tiles zu laden
-        if (!project.path.isNullOrBlank()) {
-            project.tiles.forEach { (key, filename) ->
+        // 1. Migration alter Daten (Falls "oldTiles" existieren)
+        val migratedTiles = mutableMapOf<Pair<Int, Int>, File>()
+        if (!project.oldTiles.isNullOrEmpty() && project.path != null) {
+            project.oldTiles.forEach { (key, filename) ->
                 try {
-                    val cords = key.split(",")
-                    if (cords.size == 2) {
-                        val x = cords[0].toInt()
-                        val y = cords[1].toInt()
-
-                        // Datei relativ zum Projektordner suchen
-                        val tileFile = File(project.path, filename)
-
-                        // Nur hinzufügen, wenn Datei auch existiert (optional, aber sauberer)
-                        if (tileFile.exists()) {
-                            map[x to y] = tileFile
-                        }
+                    val parts = key.split(",")
+                    if (parts.size == 2) {
+                        val f = File(project.path, filename)
+                        if (f.exists()) migratedTiles[parts[0].toInt() to parts[1].toInt()] = f
                     }
-                } catch (e: Exception) {
-                    println("Fehler beim Laden von Tile $key: ${e.message}")
-                }
+                } catch (_: Exception) {}
             }
         }
-        println("Editor geladen mit ${map.size} Tiles.")
-        map
-    }
 
-    // --- FUNKTION ZUM SPEICHERN ---
-    fun saveCurrentState() {
-        // Debug: Sehen, wie viele Tiles wir haben
-        println("Starte Speichern... Anzahl Tiles im Grid: ${placedTiles.size}")
-
-        val newTilesMap = mutableMapOf<String, String>()
-
-        // Wir iterieren über eine Kopie der Map, um sicherzugehen
-        placedTiles.toMap().forEach { (pos, file) ->
-            val key = "${pos.first},${pos.second}"
-            newTilesMap[key] = file.name
-        }
-
-        // Neue Config erstellen
-        val updatedConfig = project.copy(tiles = newTilesMap)
-
-        // Auf Festplatte schreiben
-        val success = saveProjectConfig(updatedConfig)
-
-        if (success) {
-            println("Speichern erfolgreich! Config hat jetzt ${updatedConfig.tiles.size} Tiles.")
-            // WICHTIG: UI aktualisieren, damit der State konsistent bleibt
-            onProjectChange(updatedConfig)
+        // 2. Layer aus Config laden
+        if (project.layers.isEmpty()) {
+            // Wenn keine Layer da sind (neues oder ganz altes Projekt), erstelle Default Layer
+            // Fügen ggf. migrierte Tiles hinzu
+            list.add(EditorLayer("Background", true, migratedTiles))
         } else {
-            println("Fehler beim Speichern der Datei!")
+            project.layers.forEachIndexed { idx, layerConfig ->
+                val tileMap = mutableMapOf<Pair<Int, Int>, File>()
+                if (project.path != null) {
+                    layerConfig.tiles.forEach { (key, filename) ->
+                        try {
+                            val parts = key.split(",")
+                            if (parts.size == 2) {
+                                val f = File(project.path, filename)
+                                if (f.exists()) tileMap[parts[0].toInt() to parts[1].toInt()] = f
+                            }
+                        } catch (_: Exception) {}
+                    }
+                }
+                // Migration: Falls wir im ersten Layer sind, fügen wir alte Tiles hinzu
+                if (idx == 0 && migratedTiles.isNotEmpty()) {
+                    tileMap.putAll(migratedTiles)
+                }
+                list.add(EditorLayer(layerConfig.name, layerConfig.isVisible, tileMap))
+            }
         }
+        list
     }
 
-    // --- EXPORT FUNKTION ---
+    var selectedLayerIndex by remember { mutableStateOf(0) }
+
+    // --- SPEICHERN ---
+    fun saveCurrentState() {
+        val newLayerConfigs = layers.map { editorLayer ->
+            // Konvertiere TileMap (Int/Int -> File) zu StringMap ("x,y" -> "filename")
+            val tileMapStr = editorLayer.tiles.entries.associate { (pos, file) ->
+                "${pos.first},${pos.second}" to file.name
+            }
+            LayerConfig(editorLayer.name, editorLayer.isVisible, tileMapStr)
+        }
+        val updatedConfig = project.copy(layers = newLayerConfigs)
+        saveProjectConfig(updatedConfig)
+        onProjectChange(updatedConfig)
+    }
+
+    // --- EXPORT ---
     fun exportMapToTxt() {
         if (project.path == null) return
 
-        val uniqueFiles = placedTiles.values.distinct().sortedBy { it.name }
-        val fileToId = uniqueFiles.mapIndexed { index, file -> file to index }.toMap()
-
-        val sbGrid = StringBuilder()
-        for (y in 0 until project.height) {
-            val row = mutableListOf<String>()
-            for (x in 0 until project.width) {
-                val file = placedTiles[x to y]
-                val id = if (file != null) fileToId[file] else -1
-                row.add(id.toString())
-            }
-            sbGrid.append(row.joinToString(",")).append("\n")
-        }
+        // 1. Globale Legende erstellen
+        val allTiles = layers.flatMap { it.tiles.values }.distinctBy { it.name }.sortedBy { it.name }
+        val fileToId = allTiles.mapIndexed { index, file -> file to index }.toMap()
 
         val sbLegend = StringBuilder()
-        fileToId.forEach { (file, id) ->
-            sbLegend.append("$id: ${file.name}\n")
-        }
+        fileToId.forEach { (file, id) -> sbLegend.append("$id: ${file.name}\n") }
+        File(project.path, "map_legend.txt").writeText(sbLegend.toString())
 
-        try {
-            File(project.path, "map_grid.txt").writeText(sbGrid.toString())
-            File(project.path, "map_legend.txt").writeText(sbLegend.toString())
-            println("Export fertig: ${project.path}")
-        } catch (e: Exception) {
-            e.printStackTrace()
+        // 2. Layer einzeln exportieren
+        layers.forEachIndexed { index, layer ->
+            val sbGrid = StringBuilder()
+            for (y in 0 until project.height) {
+                val row = mutableListOf<String>()
+                for (x in 0 until project.width) {
+                    val file = layer.tiles[x to y]
+                    val id = if (file != null) fileToId[file] else -1
+                    row.add(id.toString())
+                }
+                sbGrid.append(row.joinToString(",")).append("\n")
+            }
+            // Dateiname säubern
+            val safeName = layer.name.replace(Regex("[^a-zA-Z0-9]"), "_")
+            File(project.path, "map_layer_${index}_$safeName.txt").writeText(sbGrid.toString())
         }
+        println("Export completed.")
     }
 
-    Window(
-        onCloseRequest = onClose,
-        state = windowState,
-        undecorated = true,
-        title = "Tile Map Maker - ${project.name}",
-    ) {
+    Window(onCloseRequest = onClose, state = windowState, undecorated = true, title = "Tile Map Maker - ${project.name}") {
         MaterialTheme(colors = darkColors()) {
             Column(modifier = Modifier.fillMaxSize()) {
-
                 CustomTitleBar(
-                    windowState = windowState,
-                    onClose = onClose,
-                    windowScope = this@Window,
+                    windowState, onClose, this@Window,
                     triggerOpenProject = {
                         val path = openFolderDialog(window)
                         if (path != null) {
                             val config = readProjectConfig(path)
-                            if (config != null) {
-                                onProjectChange(config.copy(path = path))
-                            } else {
-                                showLoadError = true
-                            }
+                            if (config != null) onProjectChange(config.copy(path = path)) else showLoadError = true
                         }
                     },
                     triggerNewProject = { showNewProjectDialog = true },
                     triggerCloseProject = onCloseProject,
                     triggerExportAsTxt = { exportMapToTxt() },
-                    triggerSaveProject = { saveCurrentState() }, // Hier rufen wir unsere neue Funktion auf
-                    showDropdownMenu = true,
+                    triggerSaveProject = { saveCurrentState() },
+                    showDropdownMenu = true
                 )
 
                 Row(modifier = Modifier.fillMaxSize().background(Color(0xFF1E1F22))) {
-
+                    // LINKER BEREICH: GRID
                     Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
                         MapGridArea(
                             gridWidth = project.width,
                             gridHeight = project.height,
                             selectedAsset = selectedAsset,
-                            placedTiles = placedTiles,
+                            layers = layers, // Übergebe alle Layer zum Rendern
+                            selectedLayerIndex = selectedLayerIndex,
                             onPlaceTile = { x, y, file ->
-                                placedTiles[x to y] = file
-                                // Debug: Prüfen ob das Setzen klappt
-                                // println("Tile gesetzt bei $x,$y: ${file.name}")
+                                // Platzieren nur auf dem ausgewählten Layer, wenn existent
+                                if (selectedLayerIndex in layers.indices) {
+                                    layers[selectedLayerIndex].tiles[x to y] = file
+                                }
                             },
                             onRemoveTile = { x, y ->
-                                placedTiles.remove(x to y)
-                            })
+                                // Entfernen nur vom ausgewählten Layer
+                                if (selectedLayerIndex in layers.indices) {
+                                    layers[selectedLayerIndex].tiles.remove(x to y)
+                                }
+                            }
+                        )
                     }
-
                     Divider(modifier = Modifier.fillMaxHeight().width(1.dp), color = Color(0xFF111111))
 
-                    Box(modifier = Modifier.width(300.dp).fillMaxHeight().background(Color(0xFF2B2D30))) {
-                        AssetBrowser(
-                            projectPath = project.path,
-                            selectedAsset = selectedAsset,
-                            onAssetSelect = { selectedAsset = it })
+                    // RECHTER BEREICH: SIDEBAR
+                    Column(modifier = Modifier.width(300.dp).fillMaxHeight().background(Color(0xFF2B2D30))) {
+                        // 1. Layer Manager
+                        LayerManager(
+                            layers = layers,
+                            selectedIndex = selectedLayerIndex,
+                            onSelect = { selectedLayerIndex = it },
+                            onAddLayer = {
+                                // Neuen Layer oben einfügen und auswählen
+                                layers.add(0, EditorLayer("Layer ${layers.size}", true, emptyMap()))
+                                selectedLayerIndex = 0
+                            },
+                            onRemoveLayer = { index ->
+                                if (layers.size > 1) {
+                                    layers.removeAt(index)
+                                    // Index korrigieren, falls nötig
+                                    if (selectedLayerIndex >= layers.size) selectedLayerIndex = layers.size - 1
+                                }
+                            }
+                        )
+                        Divider(color = Color.Black, thickness = 2.dp)
+
+                        // 2. Asset Browser
+                        Box(modifier = Modifier.weight(1f)) {
+                            AssetBrowser(project.path, selectedAsset) { selectedAsset = it }
+                        }
                     }
                 }
 
-                // ... (Dialoge Code bleibt gleich) ...
-                if (showNewProjectDialog) {
-                    NewProjectDialog(onDismiss = { showNewProjectDialog = false }, onCreate = { name, width, height ->
-                        showNewProjectDialog = false
-                        val parentPath = openFolderDialog(window)
-                        if (parentPath != null) {
-                            val tempConfig = ProjectConfig(name, width, height, path = parentPath)
-                            if (createProjectConfig(tempConfig)) {
-                                val fullPath = File(parentPath, name).absolutePath
-                                onProjectChange(tempConfig.copy(path = fullPath))
-                            } else {
-                                showLoadError = true
-                            }
-                        }
-                    })
-                }
-
-                if (showLoadError) {
-                    ErrorDialog(message = "Fehler beim Laden.", onDismiss = { showLoadError = false })
-                }
+                if (showNewProjectDialog) NewProjectDialog({ showNewProjectDialog = false }, { n, w, h ->
+                    showNewProjectDialog = false
+                    val path = openFolderDialog(window)
+                    if (path != null) {
+                        val cfg = ProjectConfig(n, w, h, path)
+                        if (createProjectConfig(cfg)) onProjectChange(cfg.copy(path = File(path, n).absolutePath)) else showLoadError = true
+                    }
+                })
+                if (showLoadError) ErrorDialog("Fehler beim Laden.") { showLoadError = false }
             }
         }
     }
@@ -224,7 +236,8 @@ fun MapGridArea(
     gridWidth: Int,
     gridHeight: Int,
     selectedAsset: File?,
-    placedTiles: TileMap,
+    layers: List<EditorLayer>, // Liste aller Layer zum Zeichnen
+    selectedLayerIndex: Int,
     onPlaceTile: (Int, Int, File) -> Unit,
     onRemoveTile: (Int, Int) -> Unit
 ) {
@@ -236,13 +249,7 @@ fun MapGridArea(
         val mapHeightPx = (gridHeight * TILE_SIZE_DP) * density
 
         var scale by remember { mutableStateOf(1f) }
-        var offset by remember {
-            mutableStateOf(
-                Offset(
-                    (constraints.maxWidth - mapWidthPx) / 2f, (constraints.maxHeight - mapHeightPx) / 2f
-                )
-            )
-        }
+        var offset by remember { mutableStateOf(Offset((constraints.maxWidth - mapWidthPx) / 2f, (constraints.maxHeight - mapHeightPx) / 2f)) }
         var isLocked by remember { mutableStateOf(true) }
 
         fun getGridPos(screenPos: Offset): Pair<Int, Int>? {
@@ -286,81 +293,53 @@ fun MapGridArea(
             }
         }.pointerInput(Unit) {
             detectTapGestures { tapOffset ->
-                if (selectedAsset != null) getGridPos(tapOffset)?.let {
-                    onPlaceTile(
-                        it.first, it.second, selectedAsset
-                    )
-                }
+                if (selectedAsset != null) getGridPos(tapOffset)?.let { onPlaceTile(it.first, it.second, selectedAsset) }
             }
         }) {
             Canvas(modifier = Modifier.fillMaxSize().graphicsLayer {
-                scaleX = scale; scaleY = scale; translationX = offset.x * scale; translationY =
-                offset.y * scale; transformOrigin = TransformOrigin(0f, 0f)
+                scaleX = scale; scaleY = scale; translationX = offset.x * scale; translationY = offset.y * scale; transformOrigin = TransformOrigin(0f, 0f)
             }) {
-                drawRect(
-                    Color(0xFF252526),
-                    topLeft = Offset.Zero,
-                    size = androidx.compose.ui.geometry.Size(mapWidthPx, mapHeightPx)
-                )
-                placedTiles.forEach { (pos, file) ->
-                    val (x, y) = pos
-                    var bmp = bitmapCache[file]
-                    if (bmp == null) {
-                        try {
-                            bmp = ImageIO.read(file)?.toComposeImageBitmap()?.also { bitmapCache[file] = it }
-                        } catch (_: Exception) {
+                drawRect(Color(0xFF252526), topLeft = Offset.Zero, size = androidx.compose.ui.geometry.Size(mapWidthPx, mapHeightPx))
+
+                // Layers Rendern: Von hinten (Index size-1) nach vorne (Index 0)
+                for (i in layers.indices.reversed()) {
+                    val layer = layers[i]
+                    if (!layer.isVisible) continue
+
+                    // Transparenz für inaktive Layer könnte hier eingebaut werden (alpha in drawImage)
+                    layer.tiles.forEach { (pos, file) ->
+                        val (x, y) = pos
+                        var bmp = bitmapCache[file]
+                        if (bmp == null) {
+                            try { bmp = ImageIO.read(file)?.toComposeImageBitmap()?.also { bitmapCache[file] = it } } catch(_: Exception){}
+                        }
+                        if (bmp != null) {
+                            drawImage(
+                                bmp,
+                                dstOffset = androidx.compose.ui.unit.IntOffset((x * tileSizePx).toInt(), (y * tileSizePx).toInt()),
+                                dstSize = androidx.compose.ui.unit.IntSize(tileSizePx.toInt(), tileSizePx.toInt())
+                            )
                         }
                     }
-                    if (bmp != null) {
-                        drawImage(
-                            bmp, dstOffset = androidx.compose.ui.unit.IntOffset(
-                                (x * tileSizePx).toInt(), (y * tileSizePx).toInt()
-                            ), dstSize = androidx.compose.ui.unit.IntSize(tileSizePx.toInt(), tileSizePx.toInt())
-                        )
-                    }
                 }
-                for (i in 0..gridWidth) drawLine(
-                    Color(0xFF3E3E42),
-                    start = Offset(i * tileSizePx, 0f),
-                    end = Offset(i * tileSizePx, mapHeightPx),
-                    strokeWidth = 1f / scale
-                )
-                for (i in 0..gridHeight) drawLine(
-                    Color(0xFF3E3E42), start = Offset(0f, i * tileSizePx), end = Offset(
-                        mapWidthPx, i * tileSizePx
-                    ), strokeWidth = 1f / scale
-                )
-                drawRect(
-                    Color(0xFF589DF6),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f / scale),
-                    topLeft = Offset.Zero,
-                    size = androidx.compose.ui.geometry.Size(mapWidthPx, mapHeightPx)
-                )
+
+                for (i in 0..gridWidth) drawLine(Color(0xFF3E3E42), start = Offset(i * tileSizePx, 0f), end = Offset(i * tileSizePx, mapHeightPx), strokeWidth = 1f / scale)
+                for (i in 0..gridHeight) drawLine(Color(0xFF3E3E42), start = Offset(0f, i * tileSizePx), end = Offset(mapWidthPx,
+                    i * tileSizePx
+                ), strokeWidth = 1f / scale)
+                drawRect(Color(0xFF589DF6), style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2f / scale), topLeft = Offset.Zero, size = androidx.compose.ui.geometry.Size(mapWidthPx, mapHeightPx))
             }
         }
-        Box(
-            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp)
-                .background(Color.Black.copy(0.6f), RoundedCornerShape(4.dp))
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-            ) {
+
+        Box(modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp).background(Color.Black.copy(0.6f), RoundedCornerShape(4.dp))) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)) {
                 IconButton(onClick = { isLocked = !isLocked }, modifier = Modifier.size(24.dp)) {
-                    Icon(
-                        if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen,
-                        "Lock",
-                        tint = if (isLocked) Color(0xFFE57373) else Color.White.copy(0.8f),
-                        modifier = Modifier.size(14.dp)
-                    )
+                    Icon(if (isLocked) Icons.Default.Lock else Icons.Default.LockOpen, "Lock", tint = if (isLocked) Color(0xFFE57373) else Color.White.copy(0.8f), modifier = Modifier.size(14.dp))
                 }
                 Spacer(modifier = Modifier.width(8.dp))
+                val activeLayerName = if (selectedLayerIndex in layers.indices) layers[selectedLayerIndex].name else "-"
                 val toolText = if (selectedAsset != null) selectedAsset.name else "None"
-                Text(
-                    "${(scale * 100).toInt()}% | $toolText",
-                    color = Color.White,
-                    style = MaterialTheme.typography.caption
-                )
+                Text("${(scale * 100).toInt()}% | Layer: $activeLayerName | $toolText", color = Color.White, style = MaterialTheme.typography.caption)
             }
         }
     }
@@ -482,4 +461,72 @@ fun rememberBitmapFromFile(file: File): ImageBitmap? {
         } catch (e: Exception) { e.printStackTrace() }
     }
     return bitmap
+}
+
+@Composable
+fun LayerManager(
+    layers: MutableList<EditorLayer>,
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+    onAddLayer: () -> Unit,
+    onRemoveLayer: (Int) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxWidth().height(250.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth().background(Color(0xFF3C3F41)).padding(8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Layers", style = MaterialTheme.typography.subtitle2, color = Color.LightGray)
+            IconButton(onClick = onAddLayer, modifier = Modifier.size(20.dp)) {
+                Icon(Icons.Default.Add, "Add", tint = Color.LightGray)
+            }
+        }
+        Divider(color = Color.Black)
+
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            // itemsIndexed für Zugriff auf Index
+            itemsIndexed(layers) { index, layer ->
+                val isSelected = index == selectedIndex
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(if (isSelected) Color(0xFF4B6EAF) else Color.Transparent)
+                        .clickable { onSelect(index) }
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Sichtbarkeit Toggle
+                    IconButton(
+                        onClick = { layer.isVisible = !layer.isVisible },
+                        modifier = Modifier.size(24.dp)
+                    ) {
+                        Icon(
+                            if (layer.isVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                            null,
+                            tint = if (isSelected) Color.White else Color.Gray,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    Text(
+                        text = layer.name,
+                        color = if (isSelected) Color.White else Color.Gray,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.body2
+                    )
+
+                    // Löschen Button (nur wenn mehr als 1 Layer existiert)
+                    if (layers.size > 1) {
+                        IconButton(onClick = { onRemoveLayer(index) }, modifier = Modifier.size(24.dp)) {
+                            Icon(Icons.Default.Delete, "Del", tint = if (isSelected) Color.White.copy(0.7f) else Color.Gray, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                }
+                Divider(color = Color(0xFF333333), thickness = 0.5.dp)
+            }
+        }
+    }
 }
