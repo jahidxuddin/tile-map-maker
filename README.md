@@ -15,5 +15,4 @@ in your IDE’s toolbar or run it directly from the terminal:
   
 ### Preview
 
-<img src="/img/file.png" alt="File Tab" />
-<img src="/img/export.png" alt="Export Tab" />
+<img src="/img/preview.webp" alt="Preview" />

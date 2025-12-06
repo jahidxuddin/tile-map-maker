@@ -38,7 +38,6 @@ import java.io.File
 import javax.imageio.ImageIO
 
 const val TILE_SIZE_DP = 32
-typealias TileMap = MutableMap<Pair<Int, Int>, File>
 
 @Composable
 fun ApplicationScope.EditorWindow(
