@@ -44,8 +44,13 @@ compose.desktop {
 
         nativeDistributions {
             targetFormats(TargetFormat.Dmg, TargetFormat.Msi, TargetFormat.Deb)
-            packageName = "de.ju.tilemapmaker"
+            packageName = "Tile-Map-Maker"
             packageVersion = "1.0.0"
+            windows {
+                menu = true
+                shortcut = true
+                console = false
+            }
         }
     }
 }
