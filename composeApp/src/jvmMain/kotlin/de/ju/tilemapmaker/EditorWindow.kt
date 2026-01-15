@@ -32,6 +32,8 @@ import androidx.compose.ui.window.ApplicationScope
 import androidx.compose.ui.window.Window
 import androidx.compose.ui.window.WindowPlacement
 import androidx.compose.ui.window.rememberWindowState
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.awt.RenderingHints
 import java.awt.image.BufferedImage
 import java.io.File
@@ -350,12 +352,17 @@ fun AssetBrowser(projectPath: String?, selectedAsset: File?, onAssetSelect: (Fil
 
     LaunchedEffect(projectPath) {
         if (projectPath != null) {
-            val dir = File(projectPath)
-            if (dir.exists() && dir.isDirectory) {
-                imageFiles = dir.listFiles { file ->
-                    val ext = file.extension.lowercase()
-                    file.isFile && (ext == "png" || ext == "jpg" || ext == "jpeg" || ext == "bmp")
-                }?.toList() ?: emptyList()
+            withContext(Dispatchers.IO) {
+                val dir = File(projectPath)
+                if (dir.exists() && dir.isDirectory) {
+                    val extensions = setOf("png", "jpg", "jpeg", "bmp")
+
+                    imageFiles = dir.walk()
+                        .filter { file ->
+                            file.isFile && (file.extension.lowercase() in extensions)
+                        }
+                        .toList()
+                }
             }
         }
     }
